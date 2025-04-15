@@ -1,0 +1,26 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./tsconfig.app.json"
+    },
+    {
+      "path": "./tsconfig.node.json"
+    }
+  ],
+  "compilerOptions": {
+    "types": [
+      "react-syntax-highlighter"
+    ],
+    "typeRoots": [
+      "./node_modules/@types",
+      "./src/react-syntax-highlighter.d.ts"
+    ],
+    "baseUrl": "src",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  }
+}
