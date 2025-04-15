@@ -44,9 +44,10 @@ export default function SchemaAnalyzer() {
         <Box sx={{
             display: 'flex',
             flexDirection: 'column',
-            height: 'calc(100vh - 64px)',
+            minHeight: '100vh',
             p: 3,
-            gap: 2
+            gap: 2,
+            overflow: 'hidden' // Prevent overall page scroll
         }}>
             {!connected && (
                 <Card>
@@ -91,11 +92,3 @@ export default function SchemaAnalyzer() {
         </Box>
     );
 }
-function fetchDatabases() {
-    throw new Error('Function not implemented.');
-}
-
-function fetchTables() {
-    throw new Error('Function not implemented.');
-}
-
