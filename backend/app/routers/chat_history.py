@@ -4,14 +4,13 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 from app.utils.vector_db import get_chroma_client
-from app.schemas import ChatHistoryItem  # Define this schema
+from app.schemas import ChatHistoryItem
 import logging
 import re
 
-router = APIRouter(prefix="/chat-history", tags=["Chat History"])
+router = APIRouter(prefix="/api/chat-history", tags=["Chat History"])
 logger = logging.getLogger("schema_verification.api")
 
-# Regex pattern for valid history item IDs
 ID_PATTERN = re.compile(r"^user_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 @router.get("", response_model=List[ChatHistoryItem])
@@ -21,27 +20,35 @@ async def get_chat_history(
     database: Optional[str] = None,
     table: Optional[str] = None
 ):
-
     """Retrieve paginated chat history with filters"""
     try:
         client = get_chroma_client()
         collection = client.get_collection("chat_history")
         
-        # Build filters
-        where = {}
-        if database:
-            where["database"] = database
-        if table:
-            where["tables"] = {"$contains": [table]}
+        # Build valid ChromaDB where clause
+        where_clause = {}
+        if database and table:
+            where_clause = {
+                "$and": [
+                    {"database": {"$eq": database}},
+                    {"tables": {"$contains": table}}
+                ]
+            }
+        elif database:
+            where_clause = {"database": {"$eq": database}}
+        elif table:
+            where_clause = {"tables": {"$contains": table}}
 
-        result = collection.get(
-            limit=limit,
-            offset=offset,
-            where=where,
-            include=["metadatas", "documents"],
-            sort="timestamp.desc"  # Requires Chroma >=0.5.0
-        )
+        # Only include where clause if filters are present
+        query_params = {
+            "limit": limit,
+            "offset": offset,
+            "include": ["metadatas", "documents"]
+        }
+        if where_clause:
+            query_params["where"] = where_clause
 
+        result = collection.get(**query_params)
         return _process_history_result(result)
 
     except Exception as e:
@@ -55,7 +62,6 @@ async def get_chat_history(
 async def get_history_item(item_id: str):
     """Get specific chat interaction by ID"""
     try:
-        # Validate ID format
         if not ID_PATTERN.match(item_id):
             raise HTTPException(
                 status_code=400,
@@ -65,7 +71,6 @@ async def get_history_item(item_id: str):
         client = get_chroma_client()
         collection = client.get_collection("chat_history")
         
-        # Get both user and assistant messages
         assistant_id = f"assistant_{item_id.split('_')[1]}"
         result = collection.get(
             ids=[item_id, assistant_id],
@@ -87,35 +92,42 @@ async def get_history_item(item_id: str):
         )
 
 def _process_history_result(result: dict) -> List[ChatHistoryItem]:
-    """Process raw ChromaDB response into standardized format"""
+    """Process and sort results"""
     items = []
-    for i in range(0, len(result["ids"]), 2):
+    for i in range(0, len(result.get("ids", [])), 2):
         try:
             if i+1 >= len(result["ids"]):
                 logger.warning("Odd number of history items detected")
                 break
-
             items.append(_create_history_item(result, i))
         except (KeyError, IndexError) as e:
             logger.error(f"Malformed history item at index {i}: {str(e)}")
             continue
-            
+    
+    # Sort by timestamp descending
+    items.sort(key=lambda x: x.timestamp, reverse=True)
     return items
 
 def _create_history_item(result: dict, index: int) -> ChatHistoryItem:
-    """Create a ChatHistoryItem from raw data"""
-    metadata = result["metadatas"][index]
+    """Create history item from raw data"""
+    metadata = result["metadatas"][index] or {}
+    tables = metadata.get("tables", [])
+    
+    # Convert string to list if needed
+    if isinstance(tables, str):
+        tables = [t.strip() for t in tables.split(",")] if tables else []
+    
     return ChatHistoryItem(
         id=result["ids"][index],
         prompt=result["documents"][index],
         response=result["documents"][index+1],
         database=metadata.get("database", "unknown"),
-        tables=metadata.get("tables", []),
+        tables=tables,  # Now guaranteed to be a list
         timestamp=metadata.get("timestamp", datetime.now().isoformat())
     )
 
 def _process_single_item(result: dict, item_id: str) -> ChatHistoryItem:
-    """Validate and format single history item"""
+    """Validate single item structure"""
     if len(result["ids"]) != 2:
         logger.error(f"Unexpected item count for {item_id}: {len(result['ids'])}")
         raise HTTPException(500, "Invalid history item structure")
@@ -124,11 +136,18 @@ def _process_single_item(result: dict, item_id: str) -> ChatHistoryItem:
         logger.error(f"Invalid ID order for {item_id}")
         raise HTTPException(500, "Invalid history item format")
 
+    metadata = result["metadatas"][0] or {}
+    tables = metadata.get("tables", [])
+    
+    # Convert string to list if needed
+    if isinstance(tables, str):
+        tables = [t.strip() for t in tables.split(",")] if tables else []
+    
     return ChatHistoryItem(
         id=result["ids"][0],
         prompt=result["documents"][0],
         response=result["documents"][1],
-        database=result["metadatas"][0].get("database", "unknown"),
-        tables=result["metadatas"][0].get("tables", []),
-        timestamp=result["metadatas"][0].get("timestamp", datetime.now().isoformat())
+        database=metadata.get("database", "unknown"),
+        tables=tables,  # Now guaranteed to be a list
+        timestamp=metadata.get("timestamp", datetime.now().isoformat())
     )

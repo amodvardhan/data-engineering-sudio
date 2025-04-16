@@ -28,7 +28,7 @@ export default function ChatHistorySidebar({ history, onSelect }: ChatHistorySid
             </Typography>
 
             <List disablePadding>
-                {history.map((item) => (
+                {history && history.map((item) => (
                     <ListItemButton
                         key={item.id}
                         onClick={() => onSelect(item.id)}

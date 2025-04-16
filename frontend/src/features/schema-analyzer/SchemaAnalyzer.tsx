@@ -37,37 +37,22 @@ export default function SchemaAnalyzer() {
         fetchHistory
     } = useChatHistory();
 
-    // Load initial data
+    // Enhanced data loading
     useEffect(() => {
         if (connected) {
             fetchDatabases();
             fetchHistory();
+            const interval = setInterval(fetchHistory, 5000); // Refresh every 5 seconds
+            return () => clearInterval(interval);
         }
     }, [connected]);
 
-    // Handle history selection
-    const handleHistorySelect = async (id: string) => {
-        try {
-            const response = await fetch(`/api/chat-history/${id}`);
-            if (!response.ok) throw new Error('Failed to fetch');
-
-            const data = await response.json();
-            setSelectedDatabase(data.database);
-            setSelectedTables(data.tables);
-            setMessages([
-                { role: 'user', content: data.prompt },
-                { role: 'assistant', content: data.response }
-            ]);
-        } catch (error) {
-            console.error('History load failed:', error);
+    // Enhanced send handler
+    const handleSend = async () => {
+        if (!processing) {
+            await sendPrompt();
+            await fetchHistory(); // Immediate refresh after send
         }
-    };
-
-    // Reset state for new analysis
-    const handleNewAnalysis = () => {
-        setSelectedDatabase('');
-        setSelectedTables([]);
-        setMessages([]);
     };
 
     return (
@@ -84,10 +69,19 @@ export default function SchemaAnalyzer() {
                 history={history}
                 loading={historyLoading}
                 error={historyError}
-                onSelect={handleHistorySelect}
+                onSelect={async (id) => {
+                    const response = await fetch(`/api/chat-history/${id}`);
+                    const data = await response.json();
+                    setSelectedDatabase(data.database);
+                    setSelectedTables(data.tables);
+                    setMessages([
+                        { role: 'user', content: data.prompt },
+                        { role: 'assistant', content: data.response }
+                    ]);
+                }}
             />
 
-            {/* Connection/Selection Panel */}
+            {/* Main Content */}
             <Box sx={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -99,7 +93,11 @@ export default function SchemaAnalyzer() {
             }}>
                 <Button
                     variant="contained"
-                    onClick={handleNewAnalysis}
+                    onClick={() => {
+                        setSelectedDatabase('');
+                        setSelectedTables([]);
+                        setMessages([]);
+                    }}
                     disabled={!selectedDatabase}
                     sx={{ mb: 2 }}
                 >
@@ -141,7 +139,7 @@ export default function SchemaAnalyzer() {
                 )}
             </Box>
 
-            {/* Analysis Chat */}
+            {/* Chat Window */}
             {selectedTables.length > 0 && (
                 <Card sx={{
                     flex: 1,
@@ -155,7 +153,7 @@ export default function SchemaAnalyzer() {
                         messages={messages}
                         currentPrompt={currentPrompt}
                         onPromptChange={setCurrentPrompt}
-                        onSend={sendPrompt}
+                        onSend={handleSend}
                         processing={processing}
                     />
                 </Card>
