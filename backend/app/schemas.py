@@ -11,3 +11,11 @@ class DBConnectionRequest(BaseModel):
 class AnalyzeSchemaRequest(DBConnectionRequest):
     prompt: str = Field(..., example="Generate optimized star schema")
     selected_tables: List[str] = Field(..., example=["orders", "customers"])
+
+class ChatHistoryItem(BaseModel):
+    id: str  # Unique identifier for the history item
+    prompt: str  # User's query or request
+    response: str  # Assistant's response
+    database: str  # Database associated with the query
+    tables: List[str]  # Tables involved in the query
+    timestamp: str  # Timestamp when the interaction occurred

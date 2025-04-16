@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+// hooks/useTableSelection.ts
+import { useState, useCallback, useEffect } from 'react';
 
 export function useTableSelection(config: any, selectedDatabase: string) {
     const [tables, setTables] = useState<string[]>([]);
@@ -6,7 +7,6 @@ export function useTableSelection(config: any, selectedDatabase: string) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Memoize fetchTables with useCallback
     const fetchTables = useCallback(async () => {
         if (!selectedDatabase) return;
 
@@ -17,29 +17,42 @@ export function useTableSelection(config: any, selectedDatabase: string) {
             const response = await fetch(
                 `${API_BASE_URL}/database/tables/${selectedDatabase}`,
                 {
-                    method: 'POST',
+                    method: 'POST', // Verify backend expects POST
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...config, database_name: selectedDatabase }),
+                    body: JSON.stringify(config),
                 }
             );
+
+            if (!response.ok) throw new Error('Failed to fetch tables');
+
             const data = await response.json();
-            setTables(data.tables);
+            setTables(data.tables); // Verify response structure
         } catch (err) {
-            setError('Failed to fetch tables.');
+            setError('Failed to fetch tables. Please try again.');
         } finally {
             setLoading(false);
         }
-    }, [config, selectedDatabase]); // Add dependencies here
+    }, [config, selectedDatabase]);
+
+    // Add useEffect to auto-fetch when database changes
+    useEffect(() => {
+        if (selectedDatabase) {
+            fetchTables();
+        }
+    }, [selectedDatabase, fetchTables]);
 
     const toggleTable = (table: string) => {
-        setSelectedTables((prev) =>
-            prev.includes(table) ? prev.filter((t) => t !== table) : [...prev, table]
+        setSelectedTables(prev =>
+            prev.includes(table)
+                ? prev.filter(t => t !== table)
+                : [...prev, table]
         );
     };
 
     return {
         tables,
         selectedTables,
+        setSelectedTables,
         toggleTable,
         loading,
         error,

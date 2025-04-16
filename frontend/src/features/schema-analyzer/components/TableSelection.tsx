@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import { Card, CardContent, TextField, InputAdornment, Chip, Paper, ListItem, Checkbox, ListItemText, Box, CircularProgress, Alert } from '@mui/material';
+import {
+    CardContent, TextField, InputAdornment, Chip,
+    Paper, ListItem, Checkbox, ListItemText, Box, Alert,
+    CircularProgress,
+    Typography
+} from '@mui/material';
 import { FixedSizeList as List } from 'react-window';
 import SearchIcon from '@mui/icons-material/Search';
 
@@ -9,9 +14,12 @@ interface TableSelectionProps {
     toggleTable: (table: string) => void;
     loading: boolean;
     error: string | null;
+    databaseSelected: boolean
 }
 
-export default function TableSelection({ tables, selectedTables, toggleTable, loading, error }: TableSelectionProps) {
+export default function TableSelection({
+    tables, selectedTables, toggleTable, loading, error, databaseSelected
+}: TableSelectionProps) {
     const [searchQuery, setSearchQuery] = useState('');
     const filteredTables = tables.filter(table =>
         table.toLowerCase().includes(searchQuery.toLowerCase())
@@ -22,23 +30,32 @@ export default function TableSelection({ tables, selectedTables, toggleTable, lo
             <Checkbox
                 checked={selectedTables.includes(filteredTables[index])}
                 onChange={() => toggleTable(filteredTables[index])}
+                sx={{ p: 1 }}
             />
-            <ListItemText primary={filteredTables[index]} />
+            <ListItemText
+                primary={filteredTables[index]}
+                primaryTypographyProps={{ variant: 'body2' }}
+            />
         </ListItem>
     );
 
     return (
-        <Card sx={{ mb: 4 }}>
-            <CardContent>
-                <Box display="flex" gap={2} mb={2}>
+        <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            {!databaseSelected ? (
+                <Box sx={{ textAlign: 'center', color: 'text.secondary', mt: 8 }}>
+                    <Typography variant="body2">Select a database to view tables.</Typography>
+                </Box>
+            ) : (
+                <Box sx={{ mb: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
                     <TextField
                         fullWidth
                         variant="outlined"
+                        size="small"
                         placeholder="Search tables..."
                         InputProps={{
                             startAdornment: (
                                 <InputAdornment position="start">
-                                    <SearchIcon />
+                                    <SearchIcon fontSize="small" />
                                 </InputAdornment>
                             ),
                         }}
@@ -47,30 +64,31 @@ export default function TableSelection({ tables, selectedTables, toggleTable, lo
                     />
                     <Chip
                         label={`${selectedTables.length} selected`}
+                        size="small"
                         color="primary"
                         variant="outlined"
-                        sx={{ alignSelf: 'center' }}
                     />
                 </Box>
+            )}
+            <Paper sx={{ flex: 1, overflow: 'auto' }}>
+                {loading ? (
+                    <Box display="flex" justifyContent="center" p={3}>
+                        <CircularProgress size={24} />
+                    </Box>
+                ) : (
+                    <List
+                        height={400}
+                        itemCount={filteredTables.length}
+                        itemSize={40}
+                        width="100%"
+                    >
+                        {TableRow}
+                    </List>
+                )}
+            </Paper>
 
-                <Paper sx={{ height: 400, overflow: 'auto' }}>
-                    {loading ? (
-                        <Box display="flex" justifyContent="center" p={3}>
-                            <CircularProgress />
-                        </Box>
-                    ) : (
-                        <List
-                            height={350}
-                            itemCount={filteredTables.length}
-                            itemSize={50}
-                            width="100%"
-                        >
-                            {TableRow}
-                        </List>
-                    )}
-                </Paper>
-                {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-            </CardContent>
-        </Card>
+            {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+
+        </CardContent>
     );
 }

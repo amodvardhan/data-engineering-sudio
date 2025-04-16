@@ -1,26 +1,39 @@
-import { Card, CardContent, Typography, List, ListItem, Button, CircularProgress, Alert } from '@mui/material';
+import { CardContent, List, ListItem, Button, CircularProgress, Alert, Typography } from '@mui/material';
 
-export default function DatabaseSelection({ databases, loading, error, onSelect }: any) {
+interface DatabaseSelectionProps {
+    databases: string[];
+    loading: boolean;
+    error: string | null;
+    onSelect: (db: string) => void;
+    selectedDatabase: string;
+}
+
+export default function DatabaseSelection({
+    databases, loading, error, onSelect, selectedDatabase
+}: DatabaseSelectionProps) {
     return (
-        <Card sx={{ mb: 4 }}>
-            <CardContent>
-                <Typography variant="h6" sx={{ mb: 2 }}>Select Database</Typography>
-                {loading && <CircularProgress />}
-                <List>
-                    {databases.map((db: string) => (
-                        <ListItem key={db} disablePadding>
-                            <Button
-                                fullWidth
-                                onClick={() => onSelect(db)}
-                                sx={{ justifyContent: 'flex-start' }}
-                            >
-                                {db}
-                            </Button>
-                        </ListItem>
-                    ))}
-                </List>
-                {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-            </CardContent>
-        </Card>
+        <CardContent>
+            <Typography variant="subtitle1" gutterBottom>Databases</Typography>
+            {loading && <CircularProgress size={24} sx={{ mb: 2 }} />}
+            <List dense sx={{ overflow: 'auto', maxHeight: 300 }}>
+                {databases.map((db) => (
+                    <ListItem key={db} disablePadding>
+                        <Button
+                            fullWidth
+                            onClick={() => onSelect(db)}
+                            sx={{
+                                justifyContent: 'flex-start',
+                                textTransform: 'none',
+                                fontWeight: db === selectedDatabase ? 600 : 400,
+                                bgcolor: db === selectedDatabase ? 'action.selected' : 'inherit'
+                            }}
+                        >
+                            {db}
+                        </Button>
+                    </ListItem>
+                ))}
+            </List>
+            {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+        </CardContent>
     );
 }
