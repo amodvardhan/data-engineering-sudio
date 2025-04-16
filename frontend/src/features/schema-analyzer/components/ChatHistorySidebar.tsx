@@ -1,10 +1,10 @@
 // src/components/ChatHistorySidebar.tsx
 import { List, ListItemButton, ListItemText, Box, Typography, CircularProgress, Alert, IconButton } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { HistoryItem } from '../hooks/useChatHistory';
+import { ConversationItem } from '../../../types/conversation';
 
 interface ChatHistorySidebarProps {
-    history: HistoryItem[];
+    conversations: ConversationItem[];
     loading: boolean;
     error: string | null;
     selectedId: string | null;
@@ -12,9 +12,8 @@ interface ChatHistorySidebarProps {
     onDelete: (id: string) => void;
 }
 
-
 export default function ChatHistorySidebar({
-    history,
+    conversations,
     loading,
     error,
     selectedId,
@@ -23,7 +22,7 @@ export default function ChatHistorySidebar({
 }: ChatHistorySidebarProps) {
     return (
         <Box sx={{ width: 300, height: '100vh', overflow: 'hidden', borderRight: 1, borderColor: 'divider' }}>
-            <Typography variant="h6" sx={{ p: 2 }}>Chat History</Typography>
+            <Typography variant="h6" sx={{ p: 2 }}>Conversation History</Typography>
             <Box sx={{ height: 'calc(100% - 64px)', overflowY: 'auto' }}>
                 {error ? (
                     <Alert severity="error" sx={{ m: 2 }}>{error}</Alert>
@@ -33,23 +32,27 @@ export default function ChatHistorySidebar({
                     </Box>
                 ) : (
                     <List disablePadding>
-                        {Array.isArray(history) && history.length > 0 ? (
-                            history.map((item) => (
+                        {conversations.length > 0 ? (
+                            conversations.map((conv) => (
                                 <ListItemButton
-                                    key={item.id}
-                                    selected={selectedId === item.id}
-                                    onClick={() => onSelect(item.id)}
+                                    key={conv.id}
+                                    selected={selectedId === conv.id}
+                                    onClick={() => onSelect(conv.id)}
                                     sx={{ '&.Mui-selected': { bgcolor: 'action.selected' } }}
                                 >
                                     <ListItemText
-                                        primary={item.prompt.substring(0, 40) + (item.prompt.length > 40 ? '...' : '')}
+                                        primary={
+                                            <Typography variant="body2">
+                                                {conv.database} › {conv.tables.join(', ')}
+                                            </Typography>
+                                        }
                                         secondary={
                                             <>
                                                 <Typography variant="caption" display="block">
-                                                    {new Date(item.timestamp).toLocaleString()}
+                                                    {new Date(conv.last_updated).toLocaleString()}
                                                 </Typography>
                                                 <Typography variant="caption" color="text.secondary">
-                                                    {item.database} › {Array.isArray(item.tables) ? item.tables.join(', ') : item.tables}
+                                                    {conv.messages.length} messages
                                                 </Typography>
                                             </>
                                         }
@@ -58,21 +61,18 @@ export default function ChatHistorySidebar({
                                     <IconButton
                                         edge="end"
                                         aria-label="delete"
-                                        onClick={e => {
-                                            e.stopPropagation(); // Prevent selecting the item
-                                            onDelete(item.id);
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDelete(conv.id);
                                         }}
                                         size="small"
                                     >
                                         <DeleteIcon fontSize="small" />
                                     </IconButton>
                                 </ListItemButton>
-
                             ))
                         ) : (
-                            <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>
-                                No chat history available.
-                            </Typography>
+                            <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>No conversations available.</Typography>
                         )}
                     </List>
                 )}

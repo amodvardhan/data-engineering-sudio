@@ -19,3 +19,17 @@ class ChatHistoryItem(BaseModel):
     database: str  # Database associated with the query
     tables: List[str]  # Tables involved in the query
     timestamp: str  # Timestamp when the interaction occurred
+
+    
+class MessageItem(BaseModel):
+    id: str
+    prompt: str
+    response: str
+    timestamp: str
+
+class ConversationItem(BaseModel):
+    id: str  # conversation_id
+    database: str
+    tables: List[str]
+    messages: List[MessageItem]
+    last_updated: str

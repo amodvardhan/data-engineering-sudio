@@ -1,73 +1,73 @@
 // src/hooks/useChatHistory.ts
 import { useState, useCallback } from 'react';
 import axios from 'axios';
-
-export interface HistoryItem {
-    id: string;
-    prompt: string;
-    response: string;
-    database: string;
-    tables: string[];
-    timestamp: string;
-}
+import { ConversationItem } from '../../../types/conversation';
 
 export function useChatHistory() {
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-    const [history, setHistory] = useState<HistoryItem[]>([]);
+    const [conversations, setConversations] = useState<ConversationItem[]>([]);
+    const [currentConversation, setCurrentConversation] = useState<ConversationItem | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const fetchHistory = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await axios.get(`${API_BASE_URL}/api/chat-history`);
-            // Handles both {history: [...]} and [...] as response
-            const data = Array.isArray(response.data)
-                ? response.data
-                : (response.data.history || []);
-            setHistory(data);
+            const response = await axios.get<ConversationItem[]>(`${API_BASE_URL}/api/chat-history`);
+            setConversations(response.data);
             setError(null);
         } catch (err) {
             setError('Failed to load chat history');
-            setHistory([]);
+            setConversations([]);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [API_BASE_URL]);
 
-    const fetchSingleHistory = useCallback(async (id: string) => {
+    const fetchConversation = useCallback(async (conversationId: string) => {
         setLoading(true);
         try {
-            const response = await axios.get(`${API_BASE_URL}/api/chat-history/${id}`);
+            const response = await axios.get<ConversationItem>(
+                `${API_BASE_URL}/api/chat-history/${conversationId}`
+            );
             setError(null);
-            return response.data as HistoryItem;
+            return response.data; // Return the fetched conversation
         } catch (err) {
-            setError('Failed to load history item');
-            return null;
+            setError('Failed to load conversation');
+            return null; // Explicitly return null on error
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [API_BASE_URL]);
 
-    const handleDeleteHistory = useCallback(async (id: string) => {
+
+    const deleteConversation = useCallback(async (conversationId: string) => {
         setLoading(true);
         try {
-            await axios.delete(`${API_BASE_URL}/api/chat-history/${id}`);
-            await fetchHistory(); // Refresh the list
-            // Optionally show a success toast
+            // Optimistic update: remove from local state first
+            setConversations(prev => prev.filter(c => c.id !== conversationId));
+
+            // Then send delete request
+            await axios.delete(`${API_BASE_URL}/api/chat-history/${conversationId}`);
+
+            setError(null);
         } catch (err) {
-            setError('Failed to load history item');
+            // Rollback on error
+            setConversations(prev => [...prev]);
+            setError('Failed to delete conversation');
         } finally {
             setLoading(false);
         }
-    }, [])
+    }, [API_BASE_URL]);
+
 
     return {
-        history,
+        conversations,
+        currentConversation,
         loading,
         error,
         fetchHistory,
-        fetchSingleHistory,
-        handleDeleteHistory,
+        fetchConversation,
+        deleteConversation,
     };
 }

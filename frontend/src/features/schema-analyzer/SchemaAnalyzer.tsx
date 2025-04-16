@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Box, Card, CircularProgress, Alert, Button } from '@mui/material';
+import { Box, Card, Button } from '@mui/material';
 import { useDatabaseConnection } from './hooks/useDatabaseConnection';
 import { useDatabaseSelection } from './hooks/useDatabaseSelection';
 import { useTableSelection } from './hooks/useTableSelection';
@@ -10,6 +10,7 @@ import DatabaseSelection from './components/DatabaseSelection';
 import TableSelection from './components/TableSelection';
 import AnalysisChat from './components/AnalysisChat';
 import ChatHistorySidebar from './components/ChatHistorySidebar';
+import { ConversationItem } from '../../types/conversation';
 
 export default function SchemaAnalyzer() {
     const {
@@ -33,63 +34,75 @@ export default function SchemaAnalyzer() {
     } = useSchemaAnalysis(config, selectedDatabase, selectedTables);
 
     const {
-        history, loading: historyLoading, error: historyError,
-        fetchHistory, fetchSingleHistory, handleDeleteHistory
+        conversations,
+        loading: historyLoading,
+        error: historyError,
+        fetchHistory,
+        fetchConversation,
+        deleteConversation
     } = useChatHistory();
 
-    const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+    const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
 
-    // Enhanced data loading
     useEffect(() => {
         if (connected) {
             fetchDatabases();
             fetchHistory();
-            // const interval = setInterval(fetchHistory, 5000); // Refresh every 5 seconds
-            // return () => clearInterval(interval);
         }
-    }, [connected]);
+    }, [connected, fetchDatabases, fetchHistory]);
 
-    // Enhanced send handler
     const handleSend = async () => {
         if (!processing) {
             await sendPrompt();
-            await fetchHistory(); // Immediate refresh after send
+            await fetchHistory();
         }
     };
 
-    const handleDeleteHistoryItem = async (id: string) => {
+    const handleDelete = async (id: string) => {
         try {
-            await handleDeleteHistory(id);
-            await fetchHistory(); // Refresh the list
-            // Optionally show a success toast
+            await deleteConversation(id);
+            if (selectedConversationId === id) {
+                setSelectedConversationId(null);
+                setMessages([]);
+            }
+            fetchHistory();
+            // Removed the fetchHistory() call here
         } catch (err) {
-            // Optionally show an error toast
+            console.error('Failed to delete:', err);
         }
     };
 
 
-    // Handler for when a user clicks a history item
-    const handleHistorySelect = async (id: string) => {
+    const handleSelectConversation = async (id: string) => {
         try {
-            setSelectedHistoryId(id);
-            const data = await fetchSingleHistory(id);
-            if (data) {
-                setSelectedDatabase(data.database);
-                setSelectedTables(data.tables);
-                setMessages([
-                    { role: 'user', content: data.prompt },
-                    { role: 'assistant', content: data.response }
-                ]);
-            }
-        } catch (err: any) {
-            if (err.response?.status === 404) {
-                // Refresh list to remove invalid items
-                await fetchHistory();
-                // showToast('This conversation is no longer available');
+            const conv = await fetchConversation(id);
+            if (!conv) {
+                throw new Error('Conversation not found');
             }
 
+            setSelectedConversationId(id);
+            setSelectedDatabase(conv.database);
+            setSelectedTables(conv.tables);
+
+            // Convert conversation messages to chat format
+            const msgs = conv.messages.flatMap(msg => [
+                { role: 'user' as const, content: msg.prompt },
+                { role: 'assistant' as const, content: msg.response }
+            ]);
+
+            setMessages(msgs);
+        } catch (err) {
+            console.error('Failed to load conversation:', err);
+            await fetchHistory(); // Refresh list to remove invalid entries
         }
+    };
 
+
+    const handleNewAnalysis = () => {
+        setSelectedDatabase('');
+        setSelectedTables([]);
+        setMessages([]);
+        setSelectedConversationId(null);
     };
 
     return (
@@ -101,14 +114,14 @@ export default function SchemaAnalyzer() {
             overflow: 'hidden',
             backgroundColor: 'background.default'
         }}>
-            {/* History Sidebar */}
+            {/* Sidebar */}
             <ChatHistorySidebar
-                history={history}
+                conversations={conversations}
                 loading={historyLoading}
                 error={historyError}
-                selectedId={selectedHistoryId}
-                onSelect={handleHistorySelect}
-                onDelete={handleDeleteHistoryItem}
+                selectedId={selectedConversationId}
+                onSelect={handleSelectConversation}
+                onDelete={handleDelete}
             />
 
             {/* Main Content */}
@@ -123,11 +136,7 @@ export default function SchemaAnalyzer() {
             }}>
                 <Button
                     variant="contained"
-                    onClick={() => {
-                        setSelectedDatabase('');
-                        setSelectedTables([]);
-                        setMessages([]);
-                    }}
+                    onClick={handleNewAnalysis}
                     disabled={!selectedDatabase}
                     sx={{ mb: 2 }}
                 >

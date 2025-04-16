@@ -1,57 +1,84 @@
 # routers/chat_history.py
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
-from typing import List, Optional
+from typing import List, Optional, Dict
+from collections import defaultdict
 from app.utils.vector_db import delete_conversation_by_id, get_chroma_client
-from app.schemas import ChatHistoryItem
+from app.schemas import ConversationItem, MessageItem
 import logging
 import re
 
 router = APIRouter(prefix="/api/chat-history", tags=["Chat History"])
 logger = logging.getLogger("schema_verification.api")
 
-ID_PATTERN = re.compile(
-    r"^(user|assistant)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-)
+# Regex pattern to validate conversation IDs (new format)
+CONVERSATION_ID_PATTERN = re.compile(r"^conv_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
-@router.get("", response_model=List[ChatHistoryItem])
+@router.get("", response_model=List[ConversationItem])
 async def get_chat_history(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     database: Optional[str] = None,
     table: Optional[str] = None
 ):
-    """Retrieve paginated chat history with filters"""
+    """Retrieve paginated conversations with filters"""
     try:
         client = get_chroma_client()
         collection = client.get_collection("chat_history")
         
-        # Build valid ChromaDB where clause
-        where_clause = {}
-        if database and table:
-            where_clause = {
-                "$and": [
-                    {"database": {"$eq": database}},
-                    {"tables": {"$contains": table}}
-                ]
-            }
-        elif database:
-            where_clause = {"database": {"$eq": database}}
-        elif table:
-            where_clause = {"tables": {"$contains": table}}
-
-        # Only include where clause if filters are present
+        # Build where clause
+        where_clause = _build_where_clause(database, table)
+        
         query_params = {
-            "limit": limit,
-            "offset": offset,
+            "limit": limit * 4,
+            "offset": offset * 4,
             "include": ["metadatas", "documents"]
         }
-        if where_clause:
+
+         # Only add where clause if it exists
+        if where_clause is not None:
             query_params["where"] = where_clause
 
+        # Fetch all relevant messages
         result = collection.get(**query_params)
-        return _process_history_result(result)
+
+        # Group messages by conversation_id
+        conversations = defaultdict(list)
+        for i in range(len(result.get("ids", []))):
+            metadata = result["metadatas"][i]
+            conv_id = metadata.get("conversation_id")
+            if not conv_id:
+                continue
+                
+            conversations[conv_id].append(
+                MessageItem(
+                    id=result["ids"][i],
+                    prompt=result["documents"][i],
+                    response=result["documents"][i+1] if i % 2 == 0 else "",  # Pair logic
+                    timestamp=metadata.get("timestamp", "")
+                )
+            )
+        
+        # Build response
+        conv_items = []
+        for conv_id, messages in conversations.items():
+            if not messages:
+                continue
+                
+            # Get metadata from first message
+            first_metadata = result["metadatas"][result["ids"].index(messages[0].id)]
+            conv_items.append(
+                ConversationItem(
+                    id=conv_id,
+                    database=first_metadata.get("database", "unknown"),
+                    tables=_parse_tables(first_metadata.get("tables", [])),
+                    messages=messages,
+                    last_updated=max(msg.timestamp for msg in messages)
+                )
+            )
+        
+        return sorted(conv_items, key=lambda x: x.last_updated, reverse=True)[:limit]
 
     except Exception as e:
         logger.error(f"History retrieval failed: {str(e)}", exc_info=True)
@@ -60,132 +87,83 @@ async def get_chat_history(
             content={"detail": "Failed to retrieve chat history"}
         )
 
-@router.get("/{item_id}", response_model=ChatHistoryItem)
-async def get_history_item(item_id: str):
-    """Get specific chat interaction by ID"""
+@router.get("/{conversation_id}", response_model=ConversationItem)
+async def get_conversation(conversation_id: str):
+    """Get entire conversation by conversation_id"""
     try:
-        # Updated regex pattern
-        if not ID_PATTERN.match(item_id):
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid history ID format. Expected format: user_<UUID> or assistant_<UUID>"
-            )
-
+        if not CONVERSATION_ID_PATTERN.match(conversation_id):
+            raise HTTPException(400, "Invalid conversation ID format")
+            
         client = get_chroma_client()
         collection = client.get_collection("chat_history")
         
-        # Extract UUID regardless of prefix
-        uuid_part = item_id.split("_")[1]
-        user_id = f"user_{uuid_part}"
-        assistant_id = f"assistant_{uuid_part}"
-        
+        # Get all messages for this conversation
         result = collection.get(
-            ids=[user_id, assistant_id],
+            where={"conversation_id": {"$eq": conversation_id}},
             include=["metadatas", "documents"]
         )
-
-        if len(result.get("ids", [])) != 2:
-            raise HTTPException(status_code=404, detail="History item not found")
-
-        return _process_single_item(result)
+        
+        if not result.get("ids"):
+            raise HTTPException(404, "Conversation not found")
+            
+        messages = [
+            MessageItem(
+                id=result["ids"][i],
+                prompt=result["documents"][i],
+                response=result["documents"][i+1] if i % 2 == 0 else "",
+                timestamp=result["metadatas"][i].get("timestamp", "")
+            )
+            for i in range(len(result["ids"]))
+        ]
+        
+        first_metadata = result["metadatas"][0]
+        return ConversationItem(
+            id=conversation_id,
+            database=first_metadata.get("database", "unknown"),
+            tables=_parse_tables(first_metadata.get("tables", [])),
+            messages=messages,
+            last_updated=max(msg.timestamp for msg in messages)
+        )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to fetch item {item_id}: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to retrieve history item"
-        )
-    
-@router.delete("/{item_id}", status_code=204)
-async def delete_history_item(item_id: str):
-    """
-    Delete a chat history conversation (user & assistant pair) by either user_... or assistant_... ID.
-    """
-    if not ID_PATTERN.match(item_id):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid history ID format. Expected format: user_<UUID> or assistant_<UUID>"
-        )
-    try:
-        delete_conversation_by_id(item_id)
-        return  # 204 No Content
-    except Exception as e:
-        logger.error(f"Failed to delete item {item_id}: {str(e)}")
-        raise HTTPException(500, "Failed to delete history item")
-    
-def _process_history_result(result: dict) -> List[ChatHistoryItem]:
-    """Process and sort results"""
-    items = []
-    for i in range(0, len(result.get("ids", [])), 2):
-        try:
-            if i+1 >= len(result["ids"]):
-                logger.warning("Odd number of history items detected")
-                break
-            items.append(_create_history_item(result, i))
-        except (KeyError, IndexError) as e:
-            logger.error(f"Malformed history item at index {i}: {str(e)}")
-            continue
-    
-    # Sort by timestamp descending
-    items.sort(key=lambda x: x.timestamp, reverse=True)
-    return items
+        logger.error(f"Failed to fetch conversation: {str(e)}")
+        raise HTTPException(500, "Failed to retrieve conversation")
 
-def _create_history_item(result: dict, index: int) -> ChatHistoryItem:
-    """Create history item from raw data"""
-    metadata = result["metadatas"][index] or {}
-    tables = metadata.get("tables", [])
+@router.delete("/{conversation_id}", status_code=204)
+async def delete_conversation(conversation_id: str):
+    """Delete entire conversation by ID"""
+    try:
+        if not CONVERSATION_ID_PATTERN.match(conversation_id):
+            raise HTTPException(400, "Invalid conversation ID format")
+            
+        delete_conversation_by_id(conversation_id)  # Use the vector_db function
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Deletion failed: {str(e)}")
+        raise HTTPException(500, "Conversation deletion failed")
+
+
+
+# Helper functions ------------------------------------------------------------
+
+def _build_where_clause(database: Optional[str], table: Optional[str]) -> Optional[Dict]:
+    """Build ChromaDB-compatible where clause"""
+    filters = []
+    if database:
+        filters.append({"database": {"$eq": database}})
+    if table:
+        filters.append({"tables": {"$contains": table}})
     
-    # Convert string to list if needed
+    if not filters:
+        return None  # Return None instead of empty dict
+    return {"$and": filters} if len(filters) > 1 else filters[0]
+
+
+def _parse_tables(tables) -> List[str]:
     if isinstance(tables, str):
-        tables = [t.strip() for t in tables.split(",")] if tables else []
-    
-    return ChatHistoryItem(
-        id=result["ids"][index],
-        prompt=result["documents"][index],
-        response=result["documents"][index+1],
-        database=metadata.get("database", "unknown"),
-        tables=tables,  # Now guaranteed to be a list
-        timestamp=metadata.get("timestamp", datetime.now().isoformat())
-    )
-
-def _process_single_item(result: dict) -> ChatHistoryItem:
-    """Process single conversation pair with order validation"""
-    try:
-        # Identify user and assistant indices
-        user_idx = None
-        assistant_idx = None
-        
-        for i, item_id in enumerate(result["ids"]):
-            if item_id.startswith("user_"):
-                user_idx = i
-            elif item_id.startswith("assistant_"):
-                assistant_idx = i
-        
-        if user_idx is None or assistant_idx is None:
-            raise ValueError("Missing user or assistant message in pair")
-        
-        # Get metadata from user message
-        metadata = result["metadatas"][user_idx] if result["metadatas"] else {}
-        
-        # Convert tables to list if needed
-        tables = metadata.get("tables", [])
-        if isinstance(tables, str):
-            tables = [t.strip() for t in tables.split(",") if t.strip()]
-        
-        return ChatHistoryItem(
-            id=result["ids"][user_idx],
-            prompt=result["documents"][user_idx],
-            response=result["documents"][assistant_idx],
-            database=metadata.get("database", "unknown"),
-            tables=tables,
-            timestamp=metadata.get("timestamp", datetime.now().isoformat())
-        )
-        
-    except (KeyError, IndexError, TypeError) as e:
-        logger.error(f"Failed to process history item: {str(e)}")
-        raise HTTPException(500, "Invalid history item structure")
-    except Exception as e:
-        logger.error(f"Unexpected error processing item: {str(e)}")
-        raise HTTPException(500, "History item processing failed")
+        return [t.strip() for t in tables.split(",") if t.strip()]
+    return tables

@@ -20,25 +20,40 @@ def add_message_to_history(
     assistant_message: str,
     user_embedding: list[float],
     assistant_embedding: list[float],
-    metadata: dict
+    metadata: dict,
+    conversation_id: str 
 ):
     try:
-        # Convert tables list to string
-        if "tables" in metadata and isinstance(metadata["tables"], list):
-            metadata["tables"] = ", ".join(metadata["tables"])
+        # Create a copy to avoid modifying the original metadata
+        processed_metadata = metadata.copy()
         
+        # Ensure conversation_id is always present
+        processed_metadata["conversation_id"] = conversation_id
+        
+        # Convert tables to string if needed
+        if "tables" in processed_metadata:
+            if isinstance(processed_metadata["tables"], list):
+                processed_metadata["tables"] = ", ".join(processed_metadata["tables"])
+            elif not isinstance(processed_metadata["tables"], str):
+                processed_metadata["tables"] = str(processed_metadata["tables"])
+        
+        # Generate timestamp once per pair
         timestamp = datetime.utcnow().isoformat()
-        pair_uuid = str(uuid.uuid4())  # <-- Generate ONCE per pair!
-
+        
+        # Generate UUID once per message pair
+        pair_uuid = str(uuid.uuid4())
+        
         collection.add(
             documents=[user_message, assistant_message],
             embeddings=[user_embedding, assistant_embedding],
             metadatas=[
-                {**metadata, "type": "user", "timestamp": timestamp},
-                {**metadata, "type": "assistant", "timestamp": timestamp}
+                {**processed_metadata, "type": "user", "timestamp": timestamp},
+                {**processed_metadata, "type": "assistant", "timestamp": timestamp}
             ],
-            ids=[f"user_{pair_uuid}", f"assistant_{pair_uuid}"]  # <-- Use SAME uuid
+            ids=[f"user_{pair_uuid}", f"assistant_{pair_uuid}"]
         )
+        logger.info(f"Stored conversation pair: user_{pair_uuid}, assistant_{pair_uuid}")
+        
     except Exception as e:
         logger.error(f"Storage failed: {str(e)}", exc_info=True)
         raise
@@ -58,20 +73,22 @@ def get_relevant_history(query_embedding: list[float], k: int = 3, where: dict =
         logger.error(f"Query failed: {str(e)}", exc_info=True)
         return []
 
-def delete_conversation_by_id(item_id: str):
-    """
-    Deletes both user and assistant messages for a conversation,
-    given either a user_... or assistant_... ID.
-    """
-    from app.utils.vector_db import get_chroma_client  # or your import style
-    client = get_chroma_client()
-    collection = client.get_collection("chat_history")
-    uuid_part = item_id.split("_", 1)[1]
-    user_id = f"user_{uuid_part}"
-    assistant_id = f"assistant_{uuid_part}"
+def delete_conversation_by_id(conversation_id: str):
+    """Delete entire conversation by conversation_id from metadata"""
     try:
-        collection.delete(ids=[user_id, assistant_id])
-        logger.info(f"Deleted conversation: {user_id} & {assistant_id}")
+        client = get_chroma_client()
+        collection = client.get_collection("chat_history")
+        
+        # Get all message IDs for this conversation
+        result = collection.get(
+            where={"conversation_id": {"$eq": conversation_id}},
+            include=[]  # IDs are always returned
+        )
+        
+        if result["ids"]:
+            collection.delete(ids=result["ids"])
+            logger.info(f"Deleted {len(result['ids'])} messages in conversation {conversation_id}")
+            
     except Exception as e:
-        logger.error(f"Failed to delete conversation: {user_id}, {assistant_id}: {str(e)}")
+        logger.error(f"Conversation deletion failed: {str(e)}")
         raise
