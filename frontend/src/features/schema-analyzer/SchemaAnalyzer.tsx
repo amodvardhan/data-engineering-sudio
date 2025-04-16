@@ -34,16 +34,18 @@ export default function SchemaAnalyzer() {
 
     const {
         history, loading: historyLoading, error: historyError,
-        fetchHistory
+        fetchHistory, fetchSingleHistory
     } = useChatHistory();
+
+    const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
 
     // Enhanced data loading
     useEffect(() => {
         if (connected) {
             fetchDatabases();
             fetchHistory();
-            const interval = setInterval(fetchHistory, 5000); // Refresh every 5 seconds
-            return () => clearInterval(interval);
+            // const interval = setInterval(fetchHistory, 5000); // Refresh every 5 seconds
+            // return () => clearInterval(interval);
         }
     }, [connected]);
 
@@ -53,6 +55,30 @@ export default function SchemaAnalyzer() {
             await sendPrompt();
             await fetchHistory(); // Immediate refresh after send
         }
+    };
+
+    // Handler for when a user clicks a history item
+    const handleHistorySelect = async (id: string) => {
+        try {
+            setSelectedHistoryId(id);
+            const data = await fetchSingleHistory(id);
+            if (data) {
+                setSelectedDatabase(data.database);
+                setSelectedTables(data.tables);
+                setMessages([
+                    { role: 'user', content: data.prompt },
+                    { role: 'assistant', content: data.response }
+                ]);
+            }
+        } catch (err: any) {
+            if (err.response?.status === 404) {
+                // Refresh list to remove invalid items
+                await fetchHistory();
+                // showToast('This conversation is no longer available');
+            }
+
+        }
+
     };
 
     return (
@@ -69,16 +95,8 @@ export default function SchemaAnalyzer() {
                 history={history}
                 loading={historyLoading}
                 error={historyError}
-                onSelect={async (id) => {
-                    const response = await fetch(`/api/chat-history/${id}`);
-                    const data = await response.json();
-                    setSelectedDatabase(data.database);
-                    setSelectedTables(data.tables);
-                    setMessages([
-                        { role: 'user', content: data.prompt },
-                        { role: 'assistant', content: data.response }
-                    ]);
-                }}
+                selectedId={selectedHistoryId}
+                onSelect={handleHistorySelect}
             />
 
             {/* Main Content */}

@@ -1,8 +1,8 @@
-// hooks/useChatHistory.ts
+// src/hooks/useChatHistory.ts
 import { useState, useCallback } from 'react';
 import axios from 'axios';
 
-interface HistoryItem {
+export interface HistoryItem {
     id: string;
     prompt: string;
     response: string;
@@ -21,40 +21,39 @@ export function useChatHistory() {
         setLoading(true);
         try {
             const response = await axios.get(`${API_BASE_URL}/api/chat-history`);
-            setHistory(response.data.history);
+            // Handles both {history: [...]} and [...] as response
+            const data = Array.isArray(response.data)
+                ? response.data
+                : (response.data.history || []);
+            setHistory(data);
             setError(null);
         } catch (err) {
             setError('Failed to load chat history');
-            console.error('History fetch error:', err);
+            setHistory([]);
         } finally {
             setLoading(false);
         }
     }, []);
 
-    const storeInteraction = useCallback(async (
-        prompt: string,
-        response: string,
-        database: string,
-        tables: string[]
-    ) => {
+    const fetchSingleHistory = useCallback(async (id: string) => {
+        setLoading(true);
         try {
-            await axios.post(`${API_BASE_URL}/api/chat-history`, {
-                prompt,
-                response,
-                database,
-                tables
-            });
-            await fetchHistory(); // Refresh history list
+            const response = await axios.get(`${API_BASE_URL}/api/chat-history/${id}`);
+            setError(null);
+            return response.data as HistoryItem;
         } catch (err) {
-            console.error('Failed to store interaction:', err);
+            setError('Failed to load history item');
+            return null;
+        } finally {
+            setLoading(false);
         }
-    }, [fetchHistory]);
+    }, []);
 
     return {
         history,
         loading,
         error,
         fetchHistory,
-        storeInteraction
+        fetchSingleHistory,
     };
 }

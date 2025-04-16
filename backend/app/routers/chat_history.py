@@ -11,7 +11,9 @@ import re
 router = APIRouter(prefix="/api/chat-history", tags=["Chat History"])
 logger = logging.getLogger("schema_verification.api")
 
-ID_PATTERN = re.compile(r"^user_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+ID_PATTERN = re.compile(
+    r"^(user|assistant)_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
 
 @router.get("", response_model=List[ChatHistoryItem])
 async def get_chat_history(
@@ -62,25 +64,30 @@ async def get_chat_history(
 async def get_history_item(item_id: str):
     """Get specific chat interaction by ID"""
     try:
+        # Updated regex pattern
         if not ID_PATTERN.match(item_id):
             raise HTTPException(
                 status_code=400,
-                detail="Invalid history ID format. Expected format: user_<UUID>"
+                detail="Invalid history ID format. Expected format: user_<UUID> or assistant_<UUID>"
             )
 
         client = get_chroma_client()
         collection = client.get_collection("chat_history")
         
-        assistant_id = f"assistant_{item_id.split('_')[1]}"
+        # Extract UUID regardless of prefix
+        uuid_part = item_id.split("_")[1]
+        user_id = f"user_{uuid_part}"
+        assistant_id = f"assistant_{uuid_part}"
+        
         result = collection.get(
-            ids=[item_id, assistant_id],
+            ids=[user_id, assistant_id],
             include=["metadatas", "documents"]
         )
 
-        if not result["ids"]:
+        if len(result.get("ids", [])) != 2:
             raise HTTPException(status_code=404, detail="History item not found")
 
-        return _process_single_item(result, item_id)
+        return _process_single_item(result)
 
     except HTTPException:
         raise
@@ -126,28 +133,42 @@ def _create_history_item(result: dict, index: int) -> ChatHistoryItem:
         timestamp=metadata.get("timestamp", datetime.now().isoformat())
     )
 
-def _process_single_item(result: dict, item_id: str) -> ChatHistoryItem:
-    """Validate single item structure"""
-    if len(result["ids"]) != 2:
-        logger.error(f"Unexpected item count for {item_id}: {len(result['ids'])}")
+def _process_single_item(result: dict) -> ChatHistoryItem:
+    """Process single conversation pair with order validation"""
+    try:
+        # Identify user and assistant indices
+        user_idx = None
+        assistant_idx = None
+        
+        for i, item_id in enumerate(result["ids"]):
+            if item_id.startswith("user_"):
+                user_idx = i
+            elif item_id.startswith("assistant_"):
+                assistant_idx = i
+        
+        if user_idx is None or assistant_idx is None:
+            raise ValueError("Missing user or assistant message in pair")
+        
+        # Get metadata from user message
+        metadata = result["metadatas"][user_idx] if result["metadatas"] else {}
+        
+        # Convert tables to list if needed
+        tables = metadata.get("tables", [])
+        if isinstance(tables, str):
+            tables = [t.strip() for t in tables.split(",") if t.strip()]
+        
+        return ChatHistoryItem(
+            id=result["ids"][user_idx],
+            prompt=result["documents"][user_idx],
+            response=result["documents"][assistant_idx],
+            database=metadata.get("database", "unknown"),
+            tables=tables,
+            timestamp=metadata.get("timestamp", datetime.now().isoformat())
+        )
+        
+    except (KeyError, IndexError, TypeError) as e:
+        logger.error(f"Failed to process history item: {str(e)}")
         raise HTTPException(500, "Invalid history item structure")
-
-    if not result["ids"][0].startswith("user_"):
-        logger.error(f"Invalid ID order for {item_id}")
-        raise HTTPException(500, "Invalid history item format")
-
-    metadata = result["metadatas"][0] or {}
-    tables = metadata.get("tables", [])
-    
-    # Convert string to list if needed
-    if isinstance(tables, str):
-        tables = [t.strip() for t in tables.split(",")] if tables else []
-    
-    return ChatHistoryItem(
-        id=result["ids"][0],
-        prompt=result["documents"][0],
-        response=result["documents"][1],
-        database=metadata.get("database", "unknown"),
-        tables=tables,  # Now guaranteed to be a list
-        timestamp=metadata.get("timestamp", datetime.now().isoformat())
-    )
+    except Exception as e:
+        logger.error(f"Unexpected error processing item: {str(e)}")
+        raise HTTPException(500, "History item processing failed")

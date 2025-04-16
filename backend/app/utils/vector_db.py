@@ -28,7 +28,8 @@ def add_message_to_history(
             metadata["tables"] = ", ".join(metadata["tables"])
         
         timestamp = datetime.utcnow().isoformat()
-        
+        pair_uuid = str(uuid.uuid4())  # <-- Generate ONCE per pair!
+
         collection.add(
             documents=[user_message, assistant_message],
             embeddings=[user_embedding, assistant_embedding],
@@ -36,11 +37,12 @@ def add_message_to_history(
                 {**metadata, "type": "user", "timestamp": timestamp},
                 {**metadata, "type": "assistant", "timestamp": timestamp}
             ],
-            ids=[f"user_{uuid.uuid4()}", f"assistant_{uuid.uuid4()}"]
+            ids=[f"user_{pair_uuid}", f"assistant_{pair_uuid}"]  # <-- Use SAME uuid
         )
     except Exception as e:
         logger.error(f"Storage failed: {str(e)}", exc_info=True)
         raise
+
 
 def get_relevant_history(query_embedding: list[float], k: int = 3, where: dict = None) -> list[str]:
     """Get raw documents without unpacking"""
