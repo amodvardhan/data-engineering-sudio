@@ -34,7 +34,7 @@ export default function SchemaAnalyzer() {
 
     const {
         history, loading: historyLoading, error: historyError,
-        fetchHistory, fetchSingleHistory
+        fetchHistory, fetchSingleHistory, handleDeleteHistory
     } = useChatHistory();
 
     const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
@@ -56,6 +56,17 @@ export default function SchemaAnalyzer() {
             await fetchHistory(); // Immediate refresh after send
         }
     };
+
+    const handleDeleteHistoryItem = async (id: string) => {
+        try {
+            await handleDeleteHistory(id);
+            await fetchHistory(); // Refresh the list
+            // Optionally show a success toast
+        } catch (err) {
+            // Optionally show an error toast
+        }
+    };
+
 
     // Handler for when a user clicks a history item
     const handleHistorySelect = async (id: string) => {
@@ -84,7 +95,7 @@ export default function SchemaAnalyzer() {
     return (
         <Box sx={{
             display: 'flex',
-            height: '90vh',
+            height: '100vh',
             gap: 2,
             p: 2,
             overflow: 'hidden',
@@ -97,6 +108,7 @@ export default function SchemaAnalyzer() {
                 error={historyError}
                 selectedId={selectedHistoryId}
                 onSelect={handleHistorySelect}
+                onDelete={handleDeleteHistoryItem}
             />
 
             {/* Main Content */}

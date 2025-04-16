@@ -1,9 +1,9 @@
 # routers/chat_history.py
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from typing import List, Optional
-from app.utils.vector_db import get_chroma_client
+from app.utils.vector_db import delete_conversation_by_id, get_chroma_client
 from app.schemas import ChatHistoryItem
 import logging
 import re
@@ -97,7 +97,24 @@ async def get_history_item(item_id: str):
             status_code=500,
             detail="Failed to retrieve history item"
         )
-
+    
+@router.delete("/{item_id}", status_code=204)
+async def delete_history_item(item_id: str):
+    """
+    Delete a chat history conversation (user & assistant pair) by either user_... or assistant_... ID.
+    """
+    if not ID_PATTERN.match(item_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid history ID format. Expected format: user_<UUID> or assistant_<UUID>"
+        )
+    try:
+        delete_conversation_by_id(item_id)
+        return  # 204 No Content
+    except Exception as e:
+        logger.error(f"Failed to delete item {item_id}: {str(e)}")
+        raise HTTPException(500, "Failed to delete history item")
+    
 def _process_history_result(result: dict) -> List[ChatHistoryItem]:
     """Process and sort results"""
     items = []

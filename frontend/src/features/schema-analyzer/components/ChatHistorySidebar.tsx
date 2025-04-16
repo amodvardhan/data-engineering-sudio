@@ -1,5 +1,6 @@
 // src/components/ChatHistorySidebar.tsx
-import { List, ListItemButton, ListItemText, Box, Typography, CircularProgress, Alert } from '@mui/material';
+import { List, ListItemButton, ListItemText, Box, Typography, CircularProgress, Alert, IconButton } from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { HistoryItem } from '../hooks/useChatHistory';
 
 interface ChatHistorySidebarProps {
@@ -8,14 +9,17 @@ interface ChatHistorySidebarProps {
     error: string | null;
     selectedId: string | null;
     onSelect: (id: string) => void;
+    onDelete: (id: string) => void;
 }
+
 
 export default function ChatHistorySidebar({
     history,
     loading,
     error,
     selectedId,
-    onSelect
+    onSelect,
+    onDelete
 }: ChatHistorySidebarProps) {
     return (
         <Box sx={{ width: 300, height: '100vh', overflow: 'hidden', borderRight: 1, borderColor: 'divider' }}>
@@ -51,7 +55,19 @@ export default function ChatHistorySidebar({
                                         }
                                         primaryTypographyProps={{ variant: 'body2' }}
                                     />
+                                    <IconButton
+                                        edge="end"
+                                        aria-label="delete"
+                                        onClick={e => {
+                                            e.stopPropagation(); // Prevent selecting the item
+                                            onDelete(item.id);
+                                        }}
+                                        size="small"
+                                    >
+                                        <DeleteIcon fontSize="small" />
+                                    </IconButton>
                                 </ListItemButton>
+
                             ))
                         ) : (
                             <Typography variant="body2" sx={{ p: 2, color: 'text.secondary' }}>

@@ -49,11 +49,25 @@ export function useChatHistory() {
         }
     }, []);
 
+    const handleDeleteHistory = useCallback(async (id: string) => {
+        setLoading(true);
+        try {
+            await axios.delete(`${API_BASE_URL}/api/chat-history/${id}`);
+            await fetchHistory(); // Refresh the list
+            // Optionally show a success toast
+        } catch (err) {
+            setError('Failed to load history item');
+        } finally {
+            setLoading(false);
+        }
+    }, [])
+
     return {
         history,
         loading,
         error,
         fetchHistory,
         fetchSingleHistory,
+        handleDeleteHistory,
     };
 }

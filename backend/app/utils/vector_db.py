@@ -58,3 +58,20 @@ def get_relevant_history(query_embedding: list[float], k: int = 3, where: dict =
         logger.error(f"Query failed: {str(e)}", exc_info=True)
         return []
 
+def delete_conversation_by_id(item_id: str):
+    """
+    Deletes both user and assistant messages for a conversation,
+    given either a user_... or assistant_... ID.
+    """
+    from app.utils.vector_db import get_chroma_client  # or your import style
+    client = get_chroma_client()
+    collection = client.get_collection("chat_history")
+    uuid_part = item_id.split("_", 1)[1]
+    user_id = f"user_{uuid_part}"
+    assistant_id = f"assistant_{uuid_part}"
+    try:
+        collection.delete(ids=[user_id, assistant_id])
+        logger.info(f"Deleted conversation: {user_id} & {assistant_id}")
+    except Exception as e:
+        logger.error(f"Failed to delete conversation: {user_id}, {assistant_id}: {str(e)}")
+        raise
